@@ -1,6 +1,8 @@
 import os
-import yaml
+import re
 import inspect
+from operator import itemgetter
+from itertools import izip, tee
 from functools import wraps, partial
 from xml.etree import ElementTree
 
@@ -53,7 +55,7 @@ class Ask(object):
             logger.warning("Timestamp verification disabled. Set ASK_VERIFY_TIMESTAMP = True to enable." \
                 .format(self.ask_verify_timestamp))
         app.add_url_rule(self.ask_route, view_func=self._flask_view_func, methods=['POST'])
-        app.jinja_loader = ChoiceLoader([app.jinja_loader, YamlLoader(app)])
+        app.jinja_loader = ChoiceLoader([app.jinja_loader, TemplateLoader(app)])
 
     def on_session_started(self, f):
         self._on_session_started_callback = f
@@ -170,9 +172,9 @@ class Ask(object):
         _app_ctx_stack.top._ask_session = value
 
 
-class YamlLoader(BaseLoader):
+class TemplateLoader(BaseLoader):
 
-    def __init__(self, app, path='templates.yaml'):
+    def __init__(self, app, path='templates.txt'):
         self.path = app.root_path + os.path.sep + path
         self.mapping = {}
         self._reload_mapping()
@@ -181,7 +183,16 @@ class YamlLoader(BaseLoader):
         if os.path.isfile(self.path):
             self.last_mtime = os.path.getmtime(self.path)
             with open(self.path) as f:
-                self.mapping = yaml.safe_load(f.read())
+                lines = list(f)
+            break_indexes = [i for i, l in enumerate(lines) if re.match("^---\s*$", l)]
+            variable_indexes = [i-1 for i in break_indexes]
+            variable_names = itemgetter(*variable_indexes)(lines)
+            variable_names = [v.strip() for v in variable_names]
+            content_slices = list(_pairwise(break_indexes))
+            content_slices.append((break_indexes[-1], len(lines) + 1))
+            content_slices = [(i+1,j-1) for (i,j) in content_slices]
+            contents = ["".join(lines[i:j]) for (i,j) in content_slices]
+            self.mapping = dict(zip(variable_names, contents))            
 
     def get_source(self, environment, template):
         if not os.path.isfile(self.path):
@@ -308,6 +319,13 @@ def _parse_request(obj):
                 slot.value = slot_obj.get('value')
                 intent.slots.append(slot)
     return request
+
+
+def _pairwise(iterable):
+    "s -> (s0,s1), (s1,s2), (s2, s3), ..."
+    a, b = tee(iterable)
+    next(b, None)
+    return izip(a, b)
 
 
 def _dbgdump(obj, indent=2, default=None, cls=None):

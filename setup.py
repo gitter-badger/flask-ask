@@ -23,7 +23,6 @@ setup(
     install_requires=[
         'Flask',
         'pyOpenSSL',
-        'PyYAML',
         'aniso8601'
     ],
     classifiers=[
